@@ -31,6 +31,8 @@ type levelInfo struct {
 	SysLogLevel Priority
 }
 
+var lock sync.RWMutex
+
 //说明
 var LogLevel = map[Priority] levelInfo {
 	1: {
@@ -243,13 +245,13 @@ func (w *GoRSysLog) Debug(m string) error {
 
 func (w *GoRSysLog) loadOrCacheSyslogWriter(level Priority) (*syslog.Writer,error) {
 	if w.priority & level != level {
-		return nil,errors.New("输出日志失败没有启用当前日志等级：" + LogLevel[level].Name)
+		return nil,errors.New("输出日志失败没有启用当前日志等级：" + getLogLevel(level).Name)
 	}
-	var ServiceName_level = w.ServiceName + w.ServiceNameLevelSplitStr + LogLevel[level].Name
+	var ServiceName_level = w.ServiceName + w.ServiceNameLevelSplitStr + getLogLevel(level).Name
 	var err error
 	writer,ok := w.getCache(ServiceName_level)
 	if !ok {
-		writer,err = syslog.Dial(w.Network,w.Raddr,syslog.Priority( LogLevel[level].SysLogLevel ),ServiceName_level)
+		writer,err = syslog.Dial(w.Network,w.Raddr,syslog.Priority( getLogLevel(level).SysLogLevel ),ServiceName_level)
 		if err != nil {
 			return nil,appendErr("连接syslog异常：",err)
 		}
@@ -317,7 +319,7 @@ func initRSysLogConf(ServiceName,ServiceNameLevelSplitStr,RSysLogConfDir,LogSave
 		if !isStartLeve {
 			continue
 		}
-		fullServName = ServiceName + ServiceNameLevelSplitStr + LogLevel[i].Name
+		fullServName = ServiceName + ServiceNameLevelSplitStr + getLogLevel(i).Name
 		outPutDir = LogSaveDir + ServiceName + "/" +fullServName + ".log"
 		confBuf.WriteString(fmt.Sprintf("if ($programname == '%v') then{\n\t%v\n}\n",fullServName,outPutDir))
 	}
@@ -346,6 +348,13 @@ func appendErr(strOrErr ...interface{}) error  {
 	}
 
 	return errors.New(errBuf.String())
+}
+
+func getLogLevel(level Priority) *levelInfo {
+	lock.Lock()
+	v := LogLevel[level]
+	lock.Unlock()
+	return &v
 }
 
 //func main()  {
