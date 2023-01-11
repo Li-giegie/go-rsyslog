@@ -248,14 +248,16 @@ func (w *GoRSysLog) loadOrCacheSyslogWriter(level Priority) (*syslog.Writer,erro
 		return nil,errors.New("输出日志失败没有启用当前日志等级：" + getLogLevel(level).Name)
 	}
 	var ServiceName_level = w.ServiceName + w.ServiceNameLevelSplitStr + getLogLevel(level).Name
-	var err error
+	//var err error
 	writer,ok := w.getCache(ServiceName_level)
 	if !ok {
-		writer,err = syslog.Dial(w.Network,w.Raddr,syslog.Priority( getLogLevel(level).SysLogLevel ),ServiceName_level)
-		if err != nil {
-			return nil,appendErr("连接syslog异常：",err)
-		}
-		w.setCache(ServiceName_level,writer)
+		fmt.Println("未在创建对象时传递预先定义此等级" + getLogLevel(level).Name +"日志输出：但使用了此等级的日志输出，不可使用预先未定义此等级")
+		return nil, appendErr("未在创建对象时传递预先定义此等级" + getLogLevel(level).Name +"日志输出：但使用了此等级的日志输出，不可使用预先未定义此等级")
+		//writer,err = syslog.Dial(w.Network,w.Raddr,syslog.Priority( getLogLevel(level).SysLogLevel ),ServiceName_level)
+		//if err != nil {
+		//	return nil, appendErr("连接syslog异常：",err)
+		//}
+		//w.setCache(ServiceName_level,writer)
 	}
 
 	return writer,nil
