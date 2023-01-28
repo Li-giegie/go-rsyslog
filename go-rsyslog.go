@@ -155,96 +155,113 @@ func _new(network, raddr, ServiceName ,RSysLogConfDir,ServiceNameLevelSplitStr,L
 	return gyl,nil
 }
 
+// 仅显示在显示器上，不写入文件 Print only on the monitor
+func (w *GoRSysLog) Print(arg ...interface{}) {
+	_,_ =fmt.Fprint(os.Stdout,arg)
+}
+
+// 仅显示在显示器上，不写入文件 Print only on the monitor
+func (w *GoRSysLog) Println(arg ...interface{}) {
+	_,_ =fmt.Fprintln(os.Stdout,arg)
+}
+
+// 仅显示在显示器上，不写入文件 Print only on the monitor
+func (w *GoRSysLog) Printf(format string,arg ...interface{}) {
+	_,_ =fmt.Fprintf(os.Stdout,format,arg)
+}
+
+
 // Emerg logs a message with severity LOG_EMERG, ignoring the severity
 // passed to
-func (w *GoRSysLog) Emerg(m string) error {
+func (w *GoRSysLog) Emerg(arg ...interface{}) error {
 	writer,err := w.loadOrCacheSyslogWriter(LOG_EMERG)
 	if err != nil {
 		return err
 	}
 
-	return writer.Emerg(m)
+	return writer.Emerg(splice(arg).String())
 }
 
 // Alert logs a message with severity LOG_ALERT, ignoring the severity
 // passed to New.
-func (w *GoRSysLog) Alert(m string) error {
+func (w *GoRSysLog) Alert(arg ...interface{}) error {
 	writer,err := w.loadOrCacheSyslogWriter(LOG_ALERT)
 	if err != nil {
 		return err
 	}
 
-	return writer.Alert(m)
+	return writer.Alert(splice(arg).String())
 }
 
 // Crit logs a message with severity LOG_CRIT, ignoring the severity
 // passed to New.
-func (w *GoRSysLog) Crit(m string) error {
+func (w *GoRSysLog) Crit(arg ...interface{}) error {
 	writer,err := w.loadOrCacheSyslogWriter(LOG_CRIT)
 	if err != nil {
 		return err
 	}
 
-	return writer.Crit(m)
+	return writer.Crit(splice(arg).String())
 }
 
 // Err logs a message with severity LOG_ERR, ignoring the severity
 // passed to New.
-func (w *GoRSysLog) Err(m string) error {
+func (w *GoRSysLog) Err(arg ...interface{}) error {
 	writer,err := w.loadOrCacheSyslogWriter(LOG_ERR)
 	if err != nil {
 		return err
 	}
 
-	return writer.Err(m)
+	return writer.Err(splice(arg).String())
 }
 
 // Warning logs a message with severity LOG_WARNING, ignoring the
 // severity passed to New.
-func (w *GoRSysLog) Warning(m string) error {
+func (w *GoRSysLog) Warning(arg ...interface{}) error {
 	writer,err := w.loadOrCacheSyslogWriter(LOG_WARNING)
 	if err != nil {
 		return err
 	}
 
-	return writer.Warning(m)
+	return writer.Warning(splice(arg).String())
 }
 
 // Notice logs a message with severity LOG_NOTICE, ignoring the
 // severity passed to New.
-func (w *GoRSysLog) Notice(m string) error {
+func (w *GoRSysLog) Notice(arg ...interface{}) error {
 	writer,err := w.loadOrCacheSyslogWriter(LOG_NOTICE)
 	if err != nil {
 		return err
 	}
 
-	return writer.Notice(m)
+	return writer.Notice(splice(arg).String())
 }
 
 // Info logs a message with severity LOG_INFO, ignoring the severity
 // passed to New.
-func (w *GoRSysLog) Info(m string) error {
+func (w *GoRSysLog) Info(arg ...interface{}) error {
 	writer,err := w.loadOrCacheSyslogWriter(LOG_INFO)
 	if err != nil {
 		return err
 	}
 
-	return writer.Info(m)
+	return writer.Info(splice(arg).String())
 }
 
 // Debug logs a message with severity LOG_DEBUG, ignoring the severity
 // passed to New.
-func (w *GoRSysLog) Debug(m string) error {
+func (w *GoRSysLog) Debug(arg ...interface{}) error {
 	writer,err := w.loadOrCacheSyslogWriter(LOG_DEBUG)
 	if err != nil {
 		return err
 	}
 
-	return writer.Debug(m)
+	return writer.Debug(splice(arg).String())
 }
 
 func (w *GoRSysLog) loadOrCacheSyslogWriter(level Priority) (*syslog.Writer,error) {
 	if w.priority & level != level {
+		w.Println("输出日志失败没有启用当前日志等级：" , getLogLevel(level).Name)
 		return nil,errors.New("输出日志失败没有启用当前日志等级：" + getLogLevel(level).Name)
 	}
 	var ServiceName_level = w.ServiceName + w.ServiceNameLevelSplitStr + getLogLevel(level).Name
@@ -337,19 +354,18 @@ func initRSysLogConf(ServiceName,ServiceNameLevelSplitStr,RSysLogConfDir,LogSave
 	return err
 }
 
-// string or error
+// append error
 func appendErr(strOrErr ...interface{}) error  {
+	return errors.New(splice(strOrErr).String())
+}
+
+// 拼接字符 splice
+func splice(strOrErr ...interface{}) *bytes.Buffer {
 	var errBuf = new(bytes.Buffer)
 	for _, i2 := range strOrErr {
-		switch v:=i2.(type) {
-		case string:
-			errBuf.WriteString(v)
-		case error:
-			errBuf.WriteString(v.Error())
-		}
+		errBuf.WriteString(fmt.Sprint(i2))
 	}
-
-	return errors.New(errBuf.String())
+	return errBuf
 }
 
 func getLogLevel(level Priority) *levelInfo {

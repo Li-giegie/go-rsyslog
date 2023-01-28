@@ -23,6 +23,6 @@ func TestGo_rsyslog(t *testing.T) {
 	fmt.Println(gr.Notice("Notice"))			// 错误的示例
 	fmt.Println(gr.Info("Info"))
 	fmt.Println(gr.Debug("Debug"))			// 错误的示例
-
+	gr.Print(1)
 
 }
