@@ -170,6 +170,23 @@ func (w *GoRSysLog) Printf(format string,arg ...interface{}) {
 	_,_ =fmt.Fprintf(os.Stdout,format,arg)
 }
 
+// 显示后结束进程
+func (w *GoRSysLog) Fprint(arg ...interface{}) {
+	_,_ =fmt.Fprint(os.Stdout,arg)
+	os.Exit(1)
+}
+
+// 显示后结束进程
+func (w *GoRSysLog) Fprintln(arg ...interface{}) {
+	_,_ =fmt.Fprintln(os.Stdout,arg)
+	os.Exit(1)
+}
+
+// 显示后结束进程
+func (w *GoRSysLog) Fprintf(format string,arg ...interface{}) {
+	_,_ =fmt.Fprintf(os.Stdout,format,arg)
+	os.Exit(1)
+}
 
 // Emerg logs a message with severity LOG_EMERG, ignoring the severity
 // passed to
