@@ -1,3 +1,4 @@
+
 package go_rsyslog
 //package main
 
@@ -82,10 +83,11 @@ type GoRSysLog struct {
 	Network string
 	Raddr string
 	priority Priority
-	cache sync.Map
+	logWriter sync.Map
 	ServiceNameLevelSplitStr string
 	RSysLogConfDir string
 	LogSaveDir string
+
 	//IsDebug bool
 }
 
@@ -121,7 +123,7 @@ func NewRemote(network, raddr, ServiceName ,RSysLogConfDir,ServiceNameLevelSplit
 
 func _new(network, raddr, ServiceName ,RSysLogConfDir,ServiceNameLevelSplitStr,LogSaveDir string,priority ...Priority) (*GoRSysLog,error) {
 
-	if priority == nil { priority = []Priority{LOG_EMERG | LOG_ALERT | LOG_CRIT | LOG_ERR | LOG_WARNING | LOG_NOTICE | LOG_INFO | LOG_DEBUG}}
+	if priority == nil || len(priority) < 1 { priority = []Priority{LOG_EMERG | LOG_ALERT | LOG_CRIT | LOG_ERR | LOG_WARNING | LOG_NOTICE | LOG_INFO | LOG_DEBUG}}
 
 	if ServiceName == "" {
 		return nil, errors.New("不允许服务名为空")
@@ -142,7 +144,7 @@ func _new(network, raddr, ServiceName ,RSysLogConfDir,ServiceNameLevelSplitStr,L
 		Network:     network,
 		Raddr:       raddr,
 		priority:    priority[0],
-		cache:       sync.Map{},
+		logWriter:       sync.Map{},
 		ServiceNameLevelSplitStr: ServiceNameLevelSplitStr,
 		RSysLogConfDir: RSysLogConfDir,
 		LogSaveDir: LogSaveDir,
@@ -152,7 +154,61 @@ func _new(network, raddr, ServiceName ,RSysLogConfDir,ServiceNameLevelSplitStr,L
 		return nil, err
 	}
 
+	if err := gyl.initSyslogWriter();err != nil {
+		return nil, err
+	}
 	return gyl,nil
+}
+
+// 服务名、服务名和等级分割字符、等级、配置文件保存目录、日志输出目录
+func initRSysLogConf(ServiceName,ServiceNameLevelSplitStr,RSysLogConfDir,LogSaveDir string,priority Priority) error {
+
+	var confBuf = new(bytes.Buffer)
+
+	confBuf.WriteString("$ModLoad imjournal\n$imjournalRatelimitInterval 0\n$imjournalRatelimitBurst 0\n\n")
+	var fullServName,outPutDir string
+
+	for i:=LOG_EMERG;i<=LOG_DEBUG;i*=2{
+		isStartLeve := (priority & i) == i
+		if !isStartLeve {
+			continue
+		}
+		fullServName = ServiceName + ServiceNameLevelSplitStr + getLogLevel(i).Name
+		outPutDir = LogSaveDir + ServiceName + "/" +fullServName + ".log"
+		confBuf.WriteString(fmt.Sprintf("if ($programname == '%v') then{\n\t%v\n}\n",fullServName,outPutDir))
+	}
+
+	err := os.WriteFile(RSysLogConfDir + ServiceName + ".conf" ,confBuf.Bytes(),0666)
+	if err != nil {
+		return appendErr("写入rsyslog配置文件失败：检查权限",err)
+	}
+
+	_, err = execCommand("systemctl restart rsyslog")
+	if err != nil { err = appendErr("重启rsyslog服务失败",err) }
+
+	return err
+}
+
+// 初始化日志写入对象
+func (w *GoRSysLog) initSyslogWriter() error {
+
+	for i:=LOG_EMERG;i<=LOG_DEBUG;i*=2{
+		var ServiceName_level = w.ServiceName + w.ServiceNameLevelSplitStr + getLogLevel(i).Name
+
+		if (w.priority & i) == i {
+			fmt.Println("开启的等级：",LogLevel[i].Name)
+			writer,err := syslog.Dial("","",syslog.Priority(getLogLevel(i).SysLogLevel),ServiceName_level)
+			if err != nil {
+				return appendErr("连接sysylog失败",err)
+			}
+			w.setCache(i,writer)
+		}else {
+			fmt.Println("关闭的等级：",LogLevel[i].Name)
+		}
+	}
+
+	return nil
+
 }
 
 // 仅显示在显示器上，不写入文件 Print only on the monitor
@@ -191,64 +247,63 @@ func (w *GoRSysLog) Fprintf(format string,arg ...interface{}) {
 // Emerg logs a message with severity LOG_EMERG, ignoring the severity
 // passed to
 func (w *GoRSysLog) Emerg(arg ...interface{}) error {
-	writer,err := w.loadOrCacheSyslogWriter(LOG_EMERG)
-	if err != nil {
-		return err
-	}
 
+	writer,ok := w.getCache(LOG_EMERG)
+	if !ok {
+		return appendErr("没有声明使用此等级")
+	}
 	return writer.Emerg(splice(arg).String())
 }
 
 // Alert logs a message with severity LOG_ALERT, ignoring the severity
 // passed to New.
 func (w *GoRSysLog) Alert(arg ...interface{}) error {
-	writer,err := w.loadOrCacheSyslogWriter(LOG_ALERT)
-	if err != nil {
-		return err
+	writer,ok := w.getCache(LOG_ALERT)
+	if !ok {
+		return appendErr("没有声明使用此等级")
 	}
-
 	return writer.Alert(splice(arg).String())
 }
 
 // Crit logs a message with severity LOG_CRIT, ignoring the severity
 // passed to New.
 func (w *GoRSysLog) Crit(arg ...interface{}) error {
-	writer,err := w.loadOrCacheSyslogWriter(LOG_CRIT)
-	if err != nil {
-		return err
+	writer,ok := w.getCache(LOG_CRIT)
+	if !ok {
+		return appendErr("没有声明使用此等级")
 	}
-
 	return writer.Crit(splice(arg).String())
 }
 
 // Err logs a message with severity LOG_ERR, ignoring the severity
 // passed to New.
 func (w *GoRSysLog) Err(arg ...interface{}) error {
-	writer,err := w.loadOrCacheSyslogWriter(LOG_ERR)
-	if err != nil {
-		return err
-	}
 
+	writer,ok := w.getCache(LOG_ERR)
+	if !ok {
+		return appendErr("没有声明使用此等级")
+	}
 	return writer.Err(splice(arg).String())
 }
+
 
 // Warning logs a message with severity LOG_WARNING, ignoring the
 // severity passed to New.
 func (w *GoRSysLog) Warning(arg ...interface{}) error {
-	writer,err := w.loadOrCacheSyslogWriter(LOG_WARNING)
-	if err != nil {
-		return err
-	}
 
+	writer,ok := w.getCache(LOG_WARNING)
+	if !ok {
+		return appendErr("没有声明使用此等级")
+	}
 	return writer.Warning(splice(arg).String())
 }
 
 // Notice logs a message with severity LOG_NOTICE, ignoring the
 // severity passed to New.
 func (w *GoRSysLog) Notice(arg ...interface{}) error {
-	writer,err := w.loadOrCacheSyslogWriter(LOG_NOTICE)
-	if err != nil {
-		return err
+	writer,ok := w.getCache(LOG_NOTICE)
+	if !ok {
+		return appendErr("没有声明使用此等级")
 	}
 
 	return writer.Notice(splice(arg).String())
@@ -257,9 +312,9 @@ func (w *GoRSysLog) Notice(arg ...interface{}) error {
 // Info logs a message with severity LOG_INFO, ignoring the severity
 // passed to New.
 func (w *GoRSysLog) Info(arg ...interface{}) error {
-	writer,err := w.loadOrCacheSyslogWriter(LOG_INFO)
-	if err != nil {
-		return err
+	writer,ok := w.getCache(LOG_INFO)
+	if !ok {
+		return appendErr("没有声明使用此等级")
 	}
 
 	return writer.Info(splice(arg).String())
@@ -268,107 +323,34 @@ func (w *GoRSysLog) Info(arg ...interface{}) error {
 // Debug logs a message with severity LOG_DEBUG, ignoring the severity
 // passed to New.
 func (w *GoRSysLog) Debug(arg ...interface{}) error {
-	writer,err := w.loadOrCacheSyslogWriter(LOG_DEBUG)
-	if err != nil {
-		return err
+	writer,ok := w.getCache(LOG_DEBUG)
+	if !ok {
+		return appendErr("没有声明使用此等级",getLogLevel(LOG_DEBUG).Name)
 	}
-
 	return writer.Debug(splice(arg).String())
 }
 
-func (w *GoRSysLog) loadOrCacheSyslogWriter(level Priority) (*syslog.Writer,error) {
-	if w.priority & level != level {
-		w.Println("输出日志失败没有启用当前日志等级：" , getLogLevel(level).Name)
-		return nil,errors.New("输出日志失败没有启用当前日志等级：" + getLogLevel(level).Name)
-	}
-	var ServiceName_level = w.ServiceName + w.ServiceNameLevelSplitStr + getLogLevel(level).Name
-	//var err error
-	writer,ok := w.getCache(ServiceName_level)
-	if !ok {
-		fmt.Println("未在创建对象时传递预先定义此等级" + getLogLevel(level).Name +"日志输出：但使用了此等级的日志输出，不可使用预先未定义此等级")
-		return nil, appendErr("未在创建对象时传递预先定义此等级" + getLogLevel(level).Name +"日志输出：但使用了此等级的日志输出，不可使用预先未定义此等级")
-		//writer,err = syslog.Dial(w.Network,w.Raddr,syslog.Priority( getLogLevel(level).SysLogLevel ),ServiceName_level)
-		//if err != nil {
-		//	return nil, appendErr("连接syslog异常：",err)
-		//}
-		//w.setCache(ServiceName_level,writer)
-	}
-
-	return writer,nil
-
+func (w *GoRSysLog) setCache(level Priority,val *syslog.Writer)  {
+	w.logWriter.Store(w.ServiceName + w.ServiceNameLevelSplitStr + getLogLevel(level).Name,val)
+	fmt.Println("setcache:",w.ServiceName + w.ServiceNameLevelSplitStr + getLogLevel(level).Name,val)
 }
 
-func (w *GoRSysLog) setCache(key string,val *syslog.Writer)  {
-	w.cache.Store(key,val)
-}
-
-func (w *GoRSysLog) getCache(key string)  (*syslog.Writer,bool) {
-	writer,ok := w.cache.Load(key)
-	if !ok {
-		return nil,false
-	}
-	syswriter,ok := writer.(*syslog.Writer)
+func (w *GoRSysLog) getCache(level Priority)  (*syslog.Writer,bool) {
+	fmt.Println("getCache:",w.ServiceName + w.ServiceNameLevelSplitStr + getLogLevel(level).Name)
+	writer,ok := w.logWriter.Load(w.ServiceName + w.ServiceNameLevelSplitStr + getLogLevel(level).Name)
 	if !ok {
 		return nil,false
 	}
 
-	return syswriter,true
+	return writer.(*syslog.Writer),true
 }
 
 func (w *GoRSysLog) Close()  {
-	w.cache.Range(func(key, value any) bool {
+	w.logWriter.Range(func(key, value any) bool {
 		val := value.(*syslog.Writer)
 		val.Close()
 		return true
 	})
-}
-
-func execCommand(strCommand string) (string,error) {
-
-	cmd := exec.Command("/bin/bash", "-c", strCommand)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout  // 标准输出
-	cmd.Stderr = &stderr  // 标准错误
-	err := cmd.Run()
-	if err != nil {
-		return "",appendErr("run err：",err)
-	}
-	if stderr.Len() == 0{
-		err = nil
-	}else {
-		err = errors.New(stderr.String())
-	}
-
-	return stdout.String(),err
-}
-
-// 服务名、服务名和等级分割字符、等级、配置文件保存目录、日志输出目录
-func initRSysLogConf(ServiceName,ServiceNameLevelSplitStr,RSysLogConfDir,LogSaveDir string,priority Priority) error {
-
-	var confBuf = new(bytes.Buffer)
-
-	confBuf.WriteString("$ModLoad imjournal\n$imjournalRatelimitInterval 0\n$imjournalRatelimitBurst 0\n\n")
-	var fullServName,outPutDir string
-
-	for i:=LOG_EMERG;i<=LOG_DEBUG;i*=2{
-		isStartLeve := (priority & i) == i
-		if !isStartLeve {
-			continue
-		}
-		fullServName = ServiceName + ServiceNameLevelSplitStr + getLogLevel(i).Name
-		outPutDir = LogSaveDir + ServiceName + "/" +fullServName + ".log"
-		confBuf.WriteString(fmt.Sprintf("if ($programname == '%v') then{\n\t%v\n}\n",fullServName,outPutDir))
-	}
-
-
-	err := os.WriteFile(RSysLogConfDir + ServiceName + ".conf" ,confBuf.Bytes(),0666)
-	if err != nil {
-		return appendErr("写入rsyslog配置文件失败：检查权限",err)
-	}
-	_, err = execCommand("systemctl restart rsyslog")
-	if err != nil { err = appendErr("重启rsyslog服务失败",err) }
-
-	return err
 }
 
 // append error
@@ -392,34 +374,40 @@ func getLogLevel(level Priority) *levelInfo {
 	return &v
 }
 
-//func main()  {
-//	// 日志输出在 /var/log/syslog_test/ 目录下
-//	gr,err := NewDefault("syslog_test1")
-//	if err != nil {
-//		log.Fatalln(err)
-//	}
-//	defer gr.Close()
-//	fmt.Println(gr.Emerg("Emerg"))
-//	fmt.Println(gr.Alert("Alert"))
-//	fmt.Println(gr.Crit("Crit"))
-//	fmt.Println(gr.Err("Err"))
-//	fmt.Println(gr.Warning("Warning"))
-//	fmt.Println(gr.Notice("Notice"))
-//	fmt.Println(gr.Info("Info"))
-//	fmt.Println(gr.Debug("Debug"))
-//
-//
-//	gr2,err := NewDefault("syslog_test2",LOG_DEBUG | LOG_INFO )
-//	if err != nil {
-//		log.Fatalln(err)
-//	}
-//	defer gr2.Close()
-//	fmt.Println(gr2.Emerg("Emerg"))
-//	fmt.Println(gr2.Alert("Alert"))
-//	fmt.Println(gr2.Crit("Crit"))
-//	fmt.Println(gr2.Err("Err"))
-//	fmt.Println(gr2.Warning("Warning"))
-//	fmt.Println(gr2.Notice("Notice"))
-//	fmt.Println(gr2.Info("Info"))
-//	fmt.Println(gr2.Debug("Debug"))
-//}
+func main()  {
+	// 日志输出在 /var/log/syslog_test/ 目录下
+	gr,err := NewDefault("2023_test")
+	if err != nil {
+		fmt.Println("启动失败 ",err)
+		os.Exit(2)
+	}
+	defer gr.Close()
+	fmt.Println("Emerg ",gr.Emerg("Emerg"))
+	fmt.Println(gr.Alert("Alert"))
+	fmt.Println(gr.Crit("Crit"))
+	fmt.Println(gr.Err("Err"))
+	fmt.Println(gr.Warning("Warning"))
+	fmt.Println(gr.Notice("Notice"))
+	fmt.Println(gr.Info("Info"))
+	fmt.Println("Debug ",gr.Debug("Debug"))
+}
+
+
+func execCommand(strCommand string) (string,error) {
+
+	cmd := exec.Command("/bin/bash", "-c", strCommand)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout  // 标准输出
+	cmd.Stderr = &stderr  // 标准错误
+	err := cmd.Run()
+	if err != nil {
+		return "",appendErr("run err：",err)
+	}
+	if stderr.Len() == 0{
+		err = nil
+	}else {
+		err = errors.New(stderr.String())
+	}
+
+	return stdout.String(),err
+}
