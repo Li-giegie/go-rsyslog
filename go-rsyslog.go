@@ -332,11 +332,11 @@ func (w *GoRSysLog) Debug(arg ...interface{}) error {
 
 func (w *GoRSysLog) setCache(level Priority,val *syslog.Writer)  {
 	w.logWriter.Store(w.ServiceName + w.ServiceNameLevelSplitStr + getLogLevel(level).Name,val)
-	fmt.Println("setcache:",w.ServiceName + w.ServiceNameLevelSplitStr + getLogLevel(level).Name,val)
+	//fmt.Println("setcache:",w.ServiceName + w.ServiceNameLevelSplitStr + getLogLevel(level).Name,val)
 }
 
 func (w *GoRSysLog) getCache(level Priority)  (*syslog.Writer,bool) {
-	fmt.Println("getCache:",w.ServiceName + w.ServiceNameLevelSplitStr + getLogLevel(level).Name)
+	//fmt.Println("getCache:",w.ServiceName + w.ServiceNameLevelSplitStr + getLogLevel(level).Name)
 	writer,ok := w.logWriter.Load(w.ServiceName + w.ServiceNameLevelSplitStr + getLogLevel(level).Name)
 	if !ok {
 		return nil,false
